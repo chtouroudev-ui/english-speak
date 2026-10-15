@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import content, db, llm, prompts, pronounce, stt, tts
+from . import content, course, db, llm, prompts, pronounce, stt, tts
 from .config import STATIC_DIR
 
 app = FastAPI(title="Speak English")
@@ -180,7 +180,18 @@ async def chat(body: ChatIn):
                 yield _sse({"type": "done", "message_id": mid})
 
             return StreamingResponse(opening(), media_type="text/event-stream")
-        if mode == "topic":
+        if mode == "course":
+            wn, dn = course.parse_id(scenario_id)
+            w = course.week(wn)
+            if w and dn == 3:
+                # Wednesday: this week's phrasal verbs go to the flashcards.
+                for pv in w["phrasal"]:
+                    db.execute(
+                        "INSERT OR IGNORE INTO cards(kind, front, back, example) VALUES('word', ?, ?, '')",
+                        (pv, f"Week {wn} phrasal verb"),
+                    )
+            user_text = "Hello! I'm ready for today's lesson."
+        elif mode == "topic":
             t = content.topic_of_day()
             user_text = f"Let's talk about today's topic: {t['topic']}. Ask me: {t['question']}"
         elif mode.startswith("picture"):
@@ -192,9 +203,10 @@ async def chat(body: ChatIn):
 
     sp = body.speech or SpeechInfo()
     user_msg_id = db.execute(
-        "INSERT INTO messages(session_id, role, content, audio_seconds, word_count, wpm, avg_confidence, has_image) "
-        "VALUES(?, 'user', ?, ?, ?, ?, ?, ?)",
-        (sid, user_text or "(picture)", sp.audio_seconds, sp.word_count, sp.wpm, sp.avg_confidence, 1 if image else 0),
+        "INSERT INTO messages(session_id, role, content, audio_seconds, word_count, wpm, avg_confidence, has_image, hidden) "
+        "VALUES(?, 'user', ?, ?, ?, ?, ?, ?, ?)",
+        (sid, user_text or "(picture)", sp.audio_seconds, sp.word_count, sp.wpm, sp.avg_confidence, 1 if image else 0,
+         1 if body.start else 0),
     )
 
     history = _history(sid)
@@ -207,7 +219,7 @@ async def chat(body: ChatIn):
         yield _sse({"type": "session", "session_id": sid, "user_message_id": None if body.start else user_msg_id})
         parts = []
         try:
-            async for piece in llm.stream_chat(s, messages, model=model, max_tokens=150):
+            async for piece in llm.stream_chat(s, messages, model=model, max_tokens=220 if mode == "course" else 150):
                 parts.append(piece)
                 yield _sse({"type": "delta", "text": piece})
         except Exception as e:  # noqa: BLE001 - reported to the browser
@@ -259,8 +271,10 @@ async def correct(body: CorrectIn):
 @app.get("/api/sessions")
 def list_sessions(limit: int = 30):
     return db.query(
-        "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.role='user') AS turns "
-        "FROM sessions s ORDER BY s.id DESC LIMIT ?",
+        "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.role='user' AND NOT m.hidden) AS turns, "
+        "(SELECT content FROM messages m WHERE m.session_id = s.id AND m.role='user' AND NOT m.hidden ORDER BY m.id DESC LIMIT 1) AS last_text "
+        "FROM sessions s WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.role='user' AND NOT m.hidden) "
+        "ORDER BY s.id DESC LIMIT ?",
         (limit,),
     )
 
@@ -270,7 +284,7 @@ def get_session(sid: int):
     sess = db.query_one("SELECT * FROM sessions WHERE id = ?", (sid,))
     if not sess:
         raise HTTPException(404)
-    msgs = db.query("SELECT * FROM messages WHERE session_id = ? ORDER BY id", (sid,))
+    msgs = db.query("SELECT * FROM messages WHERE session_id = ? AND NOT hidden ORDER BY id", (sid,))
     for m in msgs:
         m["correction"] = json.loads(m["correction"]) if m["correction"] else None
     sess["summary"] = json.loads(sess["summary"]) if sess["summary"] else None
@@ -280,7 +294,7 @@ def get_session(sid: int):
 @app.post("/api/sessions/{sid}/end")
 async def end_session(sid: int):
     s = settings()
-    user_msgs = db.query("SELECT id, content FROM messages WHERE session_id = ? AND role='user'", (sid,))
+    user_msgs = db.query("SELECT id, content FROM messages WHERE session_id = ? AND role='user' AND NOT hidden", (sid,))
     if not user_msgs:
         db.execute("UPDATE sessions SET ended_at = datetime('now') WHERE id = ?", (sid,))
         return {"good": [], "fix": [], "words": []}
@@ -304,6 +318,14 @@ async def end_session(sid: int):
         (sid,),
     )
     summary["stats"] = {**stats, "mistakes": len(mistakes), "turns": len(user_msgs)}
+    sess = db.query_one("SELECT mode, scenario FROM sessions WHERE id = ?", (sid,))
+    if sess and sess["mode"] == "course" and len(user_msgs) >= 4:
+        db.execute(
+            "INSERT INTO course_progress(lesson, session_id) VALUES(?, ?) "
+            "ON CONFLICT(lesson) DO UPDATE SET done_at = datetime('now'), session_id = excluded.session_id",
+            (sess["scenario"], sid),
+        )
+        summary["lesson_done"] = sess["scenario"]
     db.execute(
         "UPDATE sessions SET ended_at = datetime('now'), summary = ? WHERE id = ?", (json.dumps(summary), sid)
     )
@@ -508,6 +530,28 @@ async def read_text(body: ImageIn):
         temperature=0.0,
     )
     return {"text": "" if "NO_TEXT" in out else out}
+
+
+# ---------- 15-week course ----------
+
+
+@app.get("/api/course")
+def get_course():
+    done = {r["lesson"]: r for r in db.query("SELECT * FROM course_progress")}
+    current = next(
+        (f"w{w['week']}d{d['day']}" for w in course.WEEKS for d in course.DAYS if f"w{w['week']}d{d['day']}" not in done),
+        None,
+    )
+    return {"phases": course.PHASES, "weeks": course.WEEKS, "days": course.DAYS, "done": done, "current": current}
+
+
+@app.post("/api/course/{lesson}/done")
+def mark_lesson(lesson: str, done: bool = True):
+    if done:
+        db.execute("INSERT OR IGNORE INTO course_progress(lesson) VALUES(?)", (lesson,))
+    else:
+        db.execute("DELETE FROM course_progress WHERE lesson = ?", (lesson,))
+    return {"ok": True}
 
 
 # ---------- progress ----------

@@ -12,7 +12,7 @@ DEFAULT_SETTINGS = {
     "llm_api_key": os.getenv("LLM_API_KEY", ""),
     "llm_model": os.getenv("LLM_MODEL", "qwen2.5:3b"),
     "vision_model": os.getenv("VISION_MODEL", ""),  # empty = same as llm_model
-    "vision_enabled": os.getenv("VISION_ENABLED", "true").lower() == "true",
+    "vision_enabled": os.getenv("VISION_ENABLED", "false").lower() == "true",
     "level": "B1",
     "correction_style": "big",  # all | big | off
     "accent": "us",  # us | uk
@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
     "job": "",
     "daily_goal_minutes": 10,
     "reminder_time": "19:00",
-    "talk_mode": "push",  # push | handsfree
+    "talk_mode": "call",  # call (hands-free) | push
     "theme": "system",
 }
 

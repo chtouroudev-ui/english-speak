@@ -6,13 +6,15 @@ import { Icon, Spinner } from './components/ui'
 import { Talk } from './pages/Talk'
 import { Practice } from './pages/Practice'
 import { Picture } from './pages/Picture'
+import { Course } from './pages/Course'
 import { Review } from './pages/Review'
 import { Progress, tzOffset, type Stats } from './pages/Progress'
 import { Settings } from './pages/Settings'
 
 const PAGES = [
-  { id: 'talk', label: 'Talk', icon: 'chat' },
-  { id: 'practice', label: 'Practice', icon: 'target' },
+  { id: 'talk', label: 'Call', icon: 'chat' },
+  { id: 'course', label: 'Course', icon: 'target' },
+  { id: 'practice', label: 'Practice', icon: 'ear' },
   { id: 'picture', label: 'Picture', icon: 'image' },
   { id: 'review', label: 'Review', icon: 'book' },
   { id: 'progress', label: 'Progress', icon: 'chart' },
@@ -68,7 +70,7 @@ export default function App() {
   }, [settings, page])
 
   const go = (id: PageId) => { location.hash = id }
-  const visible = PAGES.filter((p) => p.id !== 'picture' || settings?.vision_enabled !== false)
+  const visible = PAGES.filter((p) => p.id !== 'picture' || settings?.vision_enabled === true)
 
   if (error) return <div className="p-6 text-red-600">Cannot reach the app server: {error}</div>
   if (!settings) return <div className="flex h-full items-center justify-center"><Spinner className="h-8 w-8 text-indigo-600" /></div>
@@ -86,6 +88,7 @@ export default function App() {
       <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
         <div className="min-h-0 flex-1 overflow-y-auto">
           {page === 'talk' && <Talk goalBanner={goalBanner} />}
+          {page === 'course' && <Course />}
           {page === 'practice' && <Practice />}
           {page === 'picture' && <Picture />}
           {page === 'review' && <Review />}

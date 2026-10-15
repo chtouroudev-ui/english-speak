@@ -19,7 +19,7 @@ export type Settings = {
   job: string
   daily_goal_minutes: number
   reminder_time: string
-  talk_mode: 'push' | 'handsfree'
+  talk_mode: 'call' | 'push'
   theme: 'system' | 'light' | 'dark'
 }
 

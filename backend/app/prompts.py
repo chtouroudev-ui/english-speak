@@ -1,4 +1,5 @@
 from .content import scenario, topic_of_day
+from .course import lesson_prompt
 
 LEVEL_HINT = {
     "A2": "Use very simple words and short sentences (A2 level). Speak slowly and clearly.",
@@ -11,14 +12,19 @@ BASE = (
     "You are a friendly English speaking partner helping a learner practise SPOKEN English. "
     "{level} Your replies are read aloud, so: keep them short (1 to 3 sentences), "
     "use no lists, no markdown, no emojis, and end with a question to keep the conversation going. "
-    "Do not correct the learner's grammar in your reply; another tool does that. "
+    "{correct}"
     "If the learner seems stuck, give a simple example of what they could say."
 )
 
 
 def system_prompt(settings, mode, scenario_id=None):
-    s = BASE.format(level=LEVEL_HINT.get(settings["level"], LEVEL_HINT["B1"]))
-    if mode == "roleplay":
+    s = BASE.format(
+        level=LEVEL_HINT.get(settings["level"], LEVEL_HINT["B1"]),
+        correct="" if mode == "course" else "Do not correct the learner's grammar in your reply; another tool does that. ",
+    )
+    if mode == "course":
+        s += lesson_prompt(scenario_id or "")
+    elif mode == "roleplay":
         sc = scenario(scenario_id)
         if sc:
             s += (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { api, streamChat, type Correction, type Summary } from '../lib/api'
+import { api, streamChat, type Correction, type Summary, type Transcript } from '../lib/api'
 import { useSettings } from '../lib/settings'
 import { speaker } from '../lib/tts'
 import { useVoice, type VoiceResult } from '../lib/voice'
@@ -11,13 +11,31 @@ import { ErrorBox, Icon, Modal, Spinner } from './ui'
 let keySeq = 0
 const k = () => `m${++keySeq}`
 
-export function Conversation({ mode, scenarioId, image, autoStart, startLabel, header }: {
+type SavedMsg = { id: number; role: 'user' | 'assistant'; content: string; correction: Correction | null; wpm: number | null; word_count: number }
+
+const store = {
+  get: (key: string) => { try { return localStorage.getItem(key) } catch { return null } },
+  set: (key: string, v: string | null) => { try { if (v === null) localStorage.removeItem(key); else localStorage.setItem(key, v) } catch { /* private mode */ } },
+}
+
+function useSpeaking() {
+  const [speaking, setSpeaking] = useState(speaker.speaking)
+  useEffect(() => speaker.onChange(setSpeaking) as unknown as () => void, [])
+  return speaking
+}
+
+export function Conversation({ mode, scenarioId, image, autoStart, header, storageKey, openSessionId, onEnded }: {
   mode: string
   scenarioId?: string
   image?: string | null
+  /** The AI speaks first when the call starts. */
   autoStart?: boolean
-  startLabel?: string
   header?: ReactNode
+  /** Remembers the open conversation across reloads (history is always saved on the server). */
+  storageKey?: string
+  /** Open a saved conversation from the history. */
+  openSessionId?: number | null
+  onEnded?: (s: Summary) => void
 }) {
   const { settings } = useSettings()
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -29,16 +47,53 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
   const [ending, setEnding] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [typed, setTyped] = useState('')
+  const [inCall, setInCall] = useState(false)
+  const [muted, setMuted] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [callStart, setCallStart] = useState(0)
+  const [now, setNow] = useState(0)
   const sessionRef = useRef<number | null>(null)
   const imageSent = useRef(false)
   const bottom = useRef<HTMLDivElement>(null)
-  const [handsFree, setHandsFree] = useState(settings?.talk_mode === 'handsfree')
+  const speaking = useSpeaking()
+  const pushMode = settings?.talk_mode === 'push'
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [msgs])
 
   useEffect(() => () => speaker.stop(), [])
+
+  useEffect(() => {
+    if (!inCall) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [inCall])
+
+  // Reopen the saved conversation (after a reload, or from the history list).
+  useEffect(() => {
+    const id = openSessionId ?? (storageKey ? Number(store.get(storageKey)) || null : null)
+    if (!id) return
+    setLoading(true)
+    api<{ messages: SavedMsg[] }>(`/api/sessions/${id}`)
+      .then((r) => {
+        sessionRef.current = id
+        setSessionId(id)
+        if (storageKey) store.set(storageKey, String(id))
+        setMsgs(
+          r.messages.map((m) => ({
+            key: k(),
+            role: m.role,
+            text: m.content,
+            id: m.id,
+            correction: m.correction,
+            speech: m.role === 'user' && m.wpm ? ({ wpm: Math.round(m.wpm), words: [], pauses: [], fillers: 0 } as unknown as Transcript) : undefined,
+          })),
+        )
+      })
+      .catch(() => storageKey && store.set(storageKey, null))
+      .finally(() => setLoading(false))
+  }, [openSessionId, storageKey])
 
   const patch = (key: string, p: Partial<Msg>) => setMsgs((all) => all.map((m) => (m.key === key ? { ...m, ...p } : m)))
 
@@ -70,6 +125,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
           if (e.type === 'session') {
             sessionRef.current = e.session_id
             setSessionId(e.session_id)
+            if (storageKey) store.set(storageKey, String(e.session_id))
             if (img) imageSent.current = true
             if (e.user_message_id && !start) userMsgId = e.user_message_id
           } else if (e.type === 'delta') {
@@ -89,6 +145,8 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
         api<Correction>('/api/correct', { method: 'POST', json: { message_id: userMsgId, text } })
           .then((c) => patch(userKey, { correction: c, correcting: false }))
           .catch(() => patch(userKey, { correcting: false }))
+      } else {
+        patch(userKey, { correcting: false })
       }
     } catch (e) {
       setError(`The model did not answer: ${e instanceof Error ? e.message : e}. Check Settings → Model.`)
@@ -101,23 +159,32 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
 
   const voice = useVoice({
     engine: settings?.stt_engine || 'server',
-    handsFree,
+    handsFree: inCall && !muted && !pushMode,
     paused: thinking,
     onResult: (r) => send(r.text, r),
     onError: setError,
   })
 
-  useEffect(() => {
-    if (autoStart && msgs.length === 0 && !thinking) send('', undefined, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart])
+  const startCall = () => {
+    setError(null)
+    setInCall(true)
+    setMuted(false)
+    setCallStart(Date.now())
+    setNow(Date.now())
+    if (autoStart && msgs.length === 0) send('', undefined, true)
+    else if (msgs.length === 0) speaker.speak('Hi! I am listening.')
+  }
 
-  const endSession = async () => {
-    if (!sessionId) return
+  const hangUp = async () => {
+    setInCall(false)
     speaker.stop()
+    if (voice.recording) voice.stop()
+    if (!sessionId || !msgs.some((m) => m.role === 'user')) return
     setEnding(true)
     try {
-      setSummary(await api<Summary>(`/api/sessions/${sessionId}/end`, { method: 'POST' }))
+      const s = await api<Summary>(`/api/sessions/${sessionId}/end`, { method: 'POST' })
+      setSummary(s)
+      onEnded?.(s)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
@@ -125,27 +192,66 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
     }
   }
 
-  const restart = () => {
+  const newConversation = () => {
     speaker.stop()
+    setInCall(false)
     setMsgs([])
     setSessionId(null)
     sessionRef.current = null
     imageSent.current = false
     setSummary(null)
-    if (autoStart) setTimeout(() => send('', undefined, true), 0)
+    if (storageKey) store.set(storageKey, null)
   }
 
-  const userTurns = msgs.filter((m) => m.role === 'user').length
+  const secs = inCall ? Math.max(0, Math.floor((now - callStart) / 1000)) : 0
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+  const state = muted
+    ? 'Muted'
+    : voice.busy
+      ? 'Understanding you…'
+      : voice.recording
+        ? 'You are talking…'
+        : thinking && !speaking
+          ? 'Thinking…'
+          : speaking
+            ? 'Speaking…'
+            : pushMode
+              ? 'Tap the mic to talk'
+              : 'Listening… just talk'
+  const pulse = Math.min(1, voice.level * 12)
 
   return (
     <div className="flex h-full flex-col">
       {header}
+
+      {inCall && (
+        <div className="flex flex-col items-center gap-2 border-b border-slate-200 bg-gradient-to-b from-indigo-600 to-indigo-700 px-4 py-5 text-white dark:border-slate-800">
+          <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white/15 transition-all" style={{ boxShadow: `0 0 0 ${speaking ? 14 : 4 + pulse * 22}px rgb(255 255 255 / ${speaking ? 0.18 : 0.08 + pulse * 0.2})` }}>
+            <span className="text-4xl">🎧</span>
+          </div>
+          <div className="text-lg font-semibold">{state}</div>
+          <div className="text-sm tabular-nums text-indigo-100">{clock}</div>
+          <div className="mt-2 flex items-center gap-6">
+            <button className={`flex h-14 w-14 items-center justify-center rounded-full ${muted ? 'bg-white text-indigo-700' : 'bg-white/20'}`} onClick={() => { setMuted(!muted); if (voice.recording) voice.stop() }} aria-label={muted ? 'Unmute' : 'Mute'}>
+              <Icon name="mic" className="h-6 w-6" />
+            </button>
+            {pushMode && <MicButton recording={voice.recording} busy={voice.busy || thinking} onClick={voice.toggle} level={voice.level} size="md" />}
+            <button className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 shadow-lg active:scale-95" onClick={hangUp} aria-label="Hang up">
+              <svg viewBox="0 0 24 24" className="h-8 w-8 rotate-[135deg]" fill="currentColor"><path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" /></svg>
+            </button>
+            <button className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20" onClick={() => setHelpOpen(true)} aria-label="Help me say it">
+              <Icon name="help" className="h-6 w-6" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {msgs.length === 0 && !autoStart && (
+        {loading && <div className="flex justify-center"><Spinner /></div>}
+        {!loading && msgs.length === 0 && !inCall && (
           <div className="mx-auto mt-6 max-w-sm text-center text-slate-500">
-            <p className="text-lg font-medium text-slate-700 dark:text-slate-200">Tap the microphone and say hello 👋</p>
-            <p className="mt-1 text-sm">Speak naturally. I will answer, and show you a better way to say things.</p>
-            {startLabel && <button className="btn-ghost mt-4" onClick={() => send('', undefined, true)}>{startLabel}</button>}
+            <p className="text-lg font-medium text-slate-700 dark:text-slate-200">Start a call and just talk 📞</p>
+            <p className="mt-1 text-sm">Speak naturally, like on the phone. I answer with my voice, and I write a better way to say things under your words.</p>
           </div>
         )}
         {msgs.map((m) => (
@@ -159,19 +265,15 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
       </div>
 
       <div className="border-t border-slate-200 bg-white/90 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
-          <div className="flex flex-col gap-2">
-            <button className="btn-ghost btn-small" onClick={() => setHelpOpen(true)}><Icon name="help" className="h-4 w-4" /> Help me say it</button>
-            <button className={`btn-small btn ${handsFree ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'btn-ghost'}`} onClick={() => setHandsFree((v) => !v)}>
-              {handsFree ? 'Hands-free on' : 'Hands-free off'}
+        {!inCall && (
+          <div className="mx-auto flex max-w-2xl items-center justify-center gap-3">
+            <button className="btn-ghost btn-small" onClick={newConversation} disabled={!msgs.length}><Icon name="plus" className="h-4 w-4" /> New</button>
+            <button className="btn h-14 flex-1 rounded-full bg-emerald-500 text-base text-white shadow-lg hover:bg-emerald-400 sm:flex-none sm:px-10" onClick={startCall} disabled={ending || loading}>
+              {ending ? <Spinner /> : '📞'} {msgs.length ? 'Continue the call' : 'Start call'}
             </button>
+            <button className="btn-ghost btn-small" onClick={() => setHelpOpen(true)}><Icon name="help" className="h-4 w-4" /> Help</button>
           </div>
-          <MicButton recording={voice.recording} busy={voice.busy || thinking} onClick={voice.toggle} level={voice.level} handsFree={handsFree} />
-          <div className="flex flex-col gap-2">
-            <button className="btn-ghost btn-small" onClick={endSession} disabled={!userTurns || ending}>{ending ? <Spinner className="h-3 w-3" /> : <Icon name="chart" className="h-4 w-4" />} End & summary</button>
-            <button className="btn-ghost btn-small" onClick={restart}><Icon name="refresh" className="h-4 w-4" /> New talk</button>
-          </div>
-        </div>
+        )}
         <form
           className="mx-auto mt-3 flex max-w-2xl gap-2"
           onSubmit={(e) => {
@@ -189,7 +291,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
 
       {word && <WordPopup word={word} onClose={() => setWord(null)} />}
       {helpOpen && <HelpSay onClose={() => setHelpOpen(false)} />}
-      {summary && <SummaryModal summary={summary} onClose={() => setSummary(null)} onNew={restart} />}
+      {summary && <SummaryModal summary={summary} onClose={() => setSummary(null)} onNew={newConversation} />}
     </div>
   )
 }

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, type Scenario, type Topic } from '../lib/api'
 import { useSettings, type Settings } from '../lib/settings'
 import { Conversation } from '../components/Conversation'
+import { History, type SessionRow } from '../components/History'
+import { Icon } from '../components/ui'
 
 const MODES = [
   { id: 'free', label: 'Free talk' },
@@ -17,6 +19,15 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [topic, setTopic] = useState<Topic | null>(null)
   const [scenarioId, setScenarioId] = useState('job-interview')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [opened, setOpened] = useState<number | null>(null)
+
+  const openFromHistory = (r: SessionRow) => {
+    setHistoryOpen(false)
+    if (r.mode === 'roleplay' && r.scenario) setScenarioId(r.scenario)
+    setMode(MODES.some((m) => m.id === r.mode) ? r.mode : 'free')
+    setOpened(r.id)
+  }
 
   useEffect(() => {
     api<{ scenarios: Scenario[]; topic: Topic }>('/api/content').then((c) => {
@@ -29,8 +40,9 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
     <div className="space-y-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
       {goalBanner && <div className="rounded-xl bg-indigo-50 px-3 py-2 text-sm text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200">{goalBanner}</div>}
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+        <button className="chip flex items-center gap-1" onClick={() => setHistoryOpen(true)}><Icon name="book" className="h-4 w-4" /> History</button>
         {MODES.map((m) => (
-          <button key={m.id} className={`chip ${mode === m.id ? 'chip-on' : ''}`} onClick={() => setMode(m.id)}>{m.label}</button>
+          <button key={m.id} className={`chip ${mode === m.id ? 'chip-on' : ''}`} onClick={() => { setOpened(null); setMode(m.id) }}>{m.label}</button>
         ))}
       </div>
       {mode === 'roleplay' && (
@@ -64,15 +76,20 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
     </div>
   )
 
-  const auto = mode === 'roleplay' || mode === 'topic' || mode === 'debate'
+  const auto = mode !== 'free'
+  const sKey = `talk:${mode}${mode === 'roleplay' ? ':' + scenarioId : ''}`
   return (
-    <Conversation
-      key={`${mode}-${mode === 'roleplay' ? scenarioId : ''}`}
-      mode={mode}
-      scenarioId={mode === 'roleplay' ? scenarioId : undefined}
-      autoStart={auto}
-      startLabel={mode === 'job' ? 'Let the AI start' : undefined}
-      header={header}
-    />
+    <>
+      <Conversation
+        key={`${sKey}-${opened ?? ''}`}
+        mode={mode}
+        scenarioId={mode === 'roleplay' ? scenarioId : undefined}
+        autoStart={auto}
+        header={header}
+        storageKey={sKey}
+        openSessionId={opened}
+      />
+      {historyOpen && <History onOpen={openFromHistory} onClose={() => setHistoryOpen(false)} />}
+    </>
   )
 }

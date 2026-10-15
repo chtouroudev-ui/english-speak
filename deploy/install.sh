@@ -4,7 +4,7 @@
 # Options:
 #   --domain my.domain.com    use your own domain (default: <your-ip>.sslip.io, free, no setup)
 #   --model qwen2.5:3b        chat model to download into Ollama
-#   --vision-model gemma3:4b  image model ("" to skip images)
+#   --vision-model gemma3:4b  also download an image model (off by default: slow on a small CPU)
 #   --external-llm URL        use a model server you already run (skips the Ollama container),
 #                             e.g. http://host.docker.internal:11434/v1
 #   --user NAME --password PW login for the web page (default user "me", random password)
@@ -12,7 +12,7 @@ set -euo pipefail
 
 DOMAIN=""
 LLM_MODEL="qwen2.5:3b"
-VISION_MODEL="gemma3:4b"
+VISION_MODEL=""
 EXTERNAL_LLM=""
 AUTH_USER="me"
 AUTH_PASS=""
@@ -99,6 +99,7 @@ LLM_BASE_URL=$BASE_URL
 LLM_API=openai
 LLM_MODEL=$LLM_MODEL
 VISION_MODEL=$VISION_MODEL
+VISION_ENABLED=$([[ -n "$VISION_MODEL" ]] && echo true || echo false)
 WHISPER_MODEL=base
 WHISPER_THREADS=2
 ENV

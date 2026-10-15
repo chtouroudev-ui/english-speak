@@ -45,7 +45,7 @@ Options:
 ```bash
 bash deploy/install.sh --domain english.example.com     # your own domain (DNS A record → server IP)
 bash deploy/install.sh --model llama3.2:3b               # another chat model
-bash deploy/install.sh --vision-model ""                 # no image model (saves RAM and disk)
+bash deploy/install.sh --vision-model gemma3:4b         # also install an image model (slow on 2 CPUs)
 bash deploy/install.sh --external-llm http://host.docker.internal:11434/v1   # use a model server you already run on this machine
 bash deploy/install.sh --password 'my-password'          # choose the password
 ```
@@ -57,11 +57,17 @@ You can also change the model later in the app: **Settings › Model**.
 | Use | Default | Size | Notes |
 |---|---|---|---|
 | Chat | `qwen2.5:3b` | ~2 GB | about 5–10 words/second on 2 ARM CPUs |
-| Pictures | `gemma3:4b` | ~3.3 GB | slower; only used on the Picture page |
+| Pictures (optional, off) | `gemma3:4b` | ~3.3 GB | slow on 2 CPUs; only for the Picture page |
 | Speech to text | Whisper `base` (int8) | ~150 MB | `small` is more accurate, about 3× slower |
 | Voice | Piper `en_US-lessac-medium` / `en_GB-alan-medium` | ~60 MB each | |
 
 7B+ models work but feel slow without a GPU.
+
+## Update
+
+```bash
+cd ~/english-speak && bash deploy/update.sh
+```
 
 ## Everyday commands
 

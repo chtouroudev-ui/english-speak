@@ -115,7 +115,7 @@ export function Settings() {
           <Segmented value={settings.whisper_model} onChange={(x) => saveNow({ whisper_model: x })} options={[{ value: 'tiny', label: 'tiny' }, { value: 'base', label: 'base' }, { value: 'small', label: 'small' }]} />
         </Field>
         <Field label="Talking mode">
-          <Segmented<S['talk_mode']> value={settings.talk_mode} onChange={(x) => saveNow({ talk_mode: x })} options={[{ value: 'push', label: 'Tap to talk' }, { value: 'handsfree', label: 'Hands-free' }]} />
+          <Segmented<S['talk_mode']> value={settings.talk_mode} onChange={(x) => saveNow({ talk_mode: x })} options={[{ value: 'call', label: 'Phone call (hands-free)' }, { value: 'push', label: 'Tap to talk (noisy places)' }]} />
         </Field>
       </section>
 

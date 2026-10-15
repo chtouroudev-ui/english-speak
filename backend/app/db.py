@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS cards (
   reps INTEGER NOT NULL DEFAULT 0,
   UNIQUE(kind, front)
 );
+CREATE TABLE IF NOT EXISTS course_progress (
+  lesson TEXT PRIMARY KEY,          -- w3d2 = week 3, day 2 (Tuesday)
+  done_at TEXT NOT NULL DEFAULT (datetime('now')),
+  session_id INTEGER
+);
 CREATE TABLE IF NOT EXISTS pron_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -77,6 +82,13 @@ def _connect():
 
 _conn = _connect()
 _conn.executescript(SCHEMA)
+# Upgrades for databases made by older versions.
+for _sql in ("ALTER TABLE messages ADD COLUMN hidden INTEGER DEFAULT 0",):
+    try:
+        _conn.execute(_sql)
+        _conn.commit()
+    except sqlite3.OperationalError:
+        pass  # already there
 
 
 @contextmanager
