@@ -39,6 +39,14 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # Optional: public HTTPS address without opening any port (deploy/tunnel.sh turns it on).
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    depends_on: [caddy]
+    command: tunnel --no-autoupdate --url http://caddy:8081
+
 volumes:
   ollama:
   appdata:

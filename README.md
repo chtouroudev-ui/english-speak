@@ -33,6 +33,10 @@ Made for an Oracle Cloud free server (ARM, 2 CPU, 12 GB RAM), works on any Ubunt
 
 3. Open the address it prints (like `https://1-2-3-4.sslip.io`) and log in with the user and password it prints.
 
+**Can't open ports 80/443?** (for example, no access to the Oracle console) Run `bash deploy/tunnel.sh`.
+It gives the app a free `https://….trycloudflare.com` address through a Cloudflare tunnel, with the same password.
+The address changes when the server restarts; run the script again to see the new one.
+
 The script installs Docker, adds swap, opens ports 80/443 in the server firewall, gets a free HTTPS
 certificate (needed for the microphone), starts the app, and downloads the models.
 

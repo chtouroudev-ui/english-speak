@@ -8,3 +8,14 @@ __DOMAIN__ {
 		flush_interval -1
 	}
 }
+
+# Inside Docker only: the Cloudflare tunnel (deploy/tunnel.sh) comes in here.
+http://:8081 {
+	encode gzip
+	basic_auth {
+		__USER__ __HASH__
+	}
+	reverse_proxy app:8000 {
+		flush_interval -1
+	}
+}
