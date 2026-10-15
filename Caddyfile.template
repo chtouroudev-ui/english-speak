@@ -1,0 +1,10 @@
+__DOMAIN__ {
+	encode gzip
+	basic_auth {
+		__USER__ __HASH__
+	}
+	reverse_proxy app:8000 {
+		# send streamed AI answers to the browser right away
+		flush_interval -1
+	}
+}

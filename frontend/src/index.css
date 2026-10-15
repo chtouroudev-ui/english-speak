@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+html, body, #root { height: 100%; }
+body {
+  @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+@utility card { @apply rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800; }
+@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition active:scale-95 disabled:opacity-50 disabled:pointer-events-none; }
+@utility btn-primary { @apply btn bg-indigo-600 text-white hover:bg-indigo-500; }
+@utility btn-ghost { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
+@utility btn-small { @apply rounded-lg px-2 py-1 text-xs; }
+@utility input { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900; }
+@utility label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
+@utility chip { @apply rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 dark:ring-slate-700 whitespace-nowrap; }
+@utility chip-on { @apply bg-indigo-600 text-white ring-indigo-600; }
