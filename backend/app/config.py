@@ -22,6 +22,7 @@ DEFAULT_SETTINGS = {
     "whisper_model": os.getenv("WHISPER_MODEL", "base"),
     "native_language": "",
     "job": "",
+    "hero_name": "",
     "daily_goal_minutes": 10,
     "reminder_time": "19:00",
     "talk_mode": "call",  # call (hands-free) | push

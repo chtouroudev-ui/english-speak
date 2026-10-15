@@ -23,7 +23,7 @@ def system_prompt(settings, mode, scenario_id=None):
         correct="" if mode == "course" else "Do not correct the learner's grammar in your reply; another tool does that. ",
     )
     if mode == "course":
-        s += lesson_prompt(scenario_id or "")
+        s += lesson_prompt(scenario_id or "", settings.get("hero_name") or "Hero")
     elif mode == "roleplay":
         sc = scenario(scenario_id)
         if sc:

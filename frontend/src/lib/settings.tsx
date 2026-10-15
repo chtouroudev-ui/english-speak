@@ -17,6 +17,7 @@ export type Settings = {
   whisper_model: string
   native_language: string
   job: string
+  hero_name: string
   daily_goal_minutes: number
   reminder_time: string
   talk_mode: 'call' | 'push'

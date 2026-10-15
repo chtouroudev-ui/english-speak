@@ -90,4 +90,7 @@ export type Summary = {
   fix: string[]
   words: { word: string; meaning: string }[]
   stats?: { seconds: number; words: number; wpm: number | null; mistakes: number; turns: number }
+  xp?: number
+  stars?: number
+  lesson_done?: string
 }

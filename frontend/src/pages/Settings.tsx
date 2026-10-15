@@ -130,6 +130,9 @@ export function Settings() {
         <Field label="My language (for translations)">
           <input className="input" placeholder="ex: French, Arabic" defaultValue={settings.native_language} onBlur={(e) => saveNow({ native_language: e.target.value })} />
         </Field>
+        <Field label="My hero name (for the games)">
+          <input className="input" placeholder="ex: Captain Chtourou" defaultValue={settings.hero_name} onBlur={(e) => saveNow({ hero_name: e.target.value })} />
+        </Field>
         <Field label="My job (for job practice)">
           <input className="input" placeholder="ex: web developer" defaultValue={settings.job} onBlur={(e) => saveNow({ job: e.target.value })} />
         </Field>

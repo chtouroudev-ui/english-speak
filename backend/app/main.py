@@ -1,6 +1,7 @@
 import datetime
 import json
 import random
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -190,7 +191,7 @@ async def chat(body: ChatIn):
                         "INSERT OR IGNORE INTO cards(kind, front, back, example) VALUES('word', ?, ?, '')",
                         (pv, f"Week {wn} phrasal verb"),
                     )
-            user_text = "Hello! I'm ready for today's lesson."
+            user_text = "I'm ready. Start the game!"
         elif mode == "topic":
             t = content.topic_of_day()
             user_text = f"Let's talk about today's topic: {t['topic']}. Ask me: {t['question']}"
@@ -319,13 +320,20 @@ async def end_session(sid: int):
     )
     summary["stats"] = {**stats, "mistakes": len(mistakes), "turns": len(user_msgs)}
     sess = db.query_one("SELECT mode, scenario FROM sessions WHERE id = ?", (sid,))
-    if sess and sess["mode"] == "course" and len(user_msgs) >= 4:
-        db.execute(
-            "INSERT INTO course_progress(lesson, session_id) VALUES(?, ?) "
-            "ON CONFLICT(lesson) DO UPDATE SET done_at = datetime('now'), session_id = excluded.session_id",
-            (sess["scenario"], sid),
-        )
-        summary["lesson_done"] = sess["scenario"]
+    if sess and sess["mode"] == "course":
+        replies = db.query("SELECT content FROM messages WHERE session_id = ? AND role='assistant'", (sid,))
+        xp = sum(int(n) for r in replies for n in re.findall(r"\[XP\+(\d+)\]", r["content"]))
+        summary["xp"] = xp
+        summary["stars"] = min(3, xp // 20)
+        if len(user_msgs) >= 4:
+            # Keep the best score of all tries.
+            db.execute(
+                "INSERT INTO course_progress(lesson, session_id, xp) VALUES(?, ?, ?) "
+                "ON CONFLICT(lesson) DO UPDATE SET done_at = datetime('now'), session_id = excluded.session_id, "
+                "xp = MAX(course_progress.xp, excluded.xp)",
+                (sess["scenario"], sid, xp),
+            )
+            summary["lesson_done"] = sess["scenario"]
     db.execute(
         "UPDATE sessions SET ended_at = datetime('now'), summary = ? WHERE id = ?", (json.dumps(summary), sid)
     )
@@ -542,7 +550,13 @@ def get_course():
         (f"w{w['week']}d{d['day']}" for w in course.WEEKS for d in course.DAYS if f"w{w['week']}d{d['day']}" not in done),
         None,
     )
-    return {"phases": course.PHASES, "weeks": course.WEEKS, "days": course.DAYS, "done": done, "current": current}
+    hero = db.get_settings().get("hero_name") or "Hero"
+    games = {w["week"]: course.game(w["week"], hero) for w in course.WEEKS}
+    total_xp = sum(r.get("xp") or 0 for r in done.values())
+    return {
+        "phases": course.PHASES, "weeks": course.WEEKS, "days": course.DAYS, "games": games,
+        "done": done, "current": current, "hero": hero, "total_xp": total_xp,
+    }
 
 
 @app.post("/api/course/{lesson}/done")

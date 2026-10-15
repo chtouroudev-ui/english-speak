@@ -83,7 +83,10 @@ def _connect():
 _conn = _connect()
 _conn.executescript(SCHEMA)
 # Upgrades for databases made by older versions.
-for _sql in ("ALTER TABLE messages ADD COLUMN hidden INTEGER DEFAULT 0",):
+for _sql in (
+    "ALTER TABLE messages ADD COLUMN hidden INTEGER DEFAULT 0",
+    "ALTER TABLE course_progress ADD COLUMN xp INTEGER DEFAULT 0",
+):
     try:
         _conn.execute(_sql)
         _conn.commit()

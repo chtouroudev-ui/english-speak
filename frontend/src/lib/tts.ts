@@ -2,6 +2,19 @@ import type { Settings } from './settings'
 
 type Listener = (speaking: boolean) => void
 
+/** Game score tags the AI adds at the end of a reply: [XP+10], [XP+5], [MISS]. */
+export const TAG_RE = /\[(XP\+(\d+)|MISS)\]/g
+export const stripTags = (t: string) => t.replace(TAG_RE, '').replace(/\[(XP\+?\d*|MIS?S?)?$/, '').trim()
+export function scoreOf(t: string) {
+  let xp = 0
+  let miss = 0
+  for (const m of t.matchAll(TAG_RE)) {
+    if (m[2]) xp += Number(m[2])
+    else miss++
+  }
+  return { xp, miss }
+}
+
 /** Plays AI text out loud, sentence by sentence, so speech starts before the full answer is written. */
 class Speaker {
   private chain: Promise<void> = Promise.resolve()
@@ -33,7 +46,7 @@ class Speaker {
   }
 
   speak(text: string, speed?: number) {
-    const clean = text.replace(/[*_#`]/g, '').trim()
+    const clean = stripTags(text).replace(/[*_#`]/g, '').trim()
     if (!clean) return
     const gen = this.gen
     const s = { ...this.settings, voice_speed: speed ?? this.settings.voice_speed }

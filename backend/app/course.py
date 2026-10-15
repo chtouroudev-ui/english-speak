@@ -174,12 +174,63 @@ WEEKS = [
     },
 ]
 
+# One hero game per week. The learner is always the hero; the AI is the game master
+# and plays every other character.
+GAMES = {
+    1: {"emoji": "🕵️", "name": "The Morning Detective",
+        "story": "You are Detective {hero}, the best in London. A diamond vanished from the museum. Every suspect has a daily routine, and the truth hides in what people do every day.",
+        "master": "You play the witnesses and suspects. The hero solves the case by asking do/does questions and describing routines."},
+    2: {"emoji": "⏳", "name": "The Time Machine",
+        "story": "Captain {hero}, your time machine works! You jump to yesterday to see what happened, and to the future to warn the city about what will happen.",
+        "master": "You are the ship's computer and the people the hero meets in the past and the future."},
+    3: {"emoji": "🛸", "name": "Drone Spy",
+        "story": "Agent {hero}, your drone flies over the city. Report what everyone is doing right now, and find out what the suspects were doing last night.",
+        "master": "You are mission control and the suspects who need an alibi ('What were you doing at 9 pm?')."},
+    4: {"emoji": "🚀", "name": "Space Explorer",
+        "story": "Commander {hero}, you are back from 6 months on Mars. The space agency wants to know everything you have done, and what you haven't done yet.",
+        "master": "You are the space agency chief and the reporters at the press conference."},
+    5: {"emoji": "🧩", "name": "Stop the Heist",
+        "story": "Inspector {hero}, a bank was robbed at midnight. Put the events in order to catch the thief, and plan what you will have done by sunrise to stop the next heist.",
+        "master": "You are the witnesses, the security guard and the thief who tries to confuse the timeline."},
+    6: {"emoji": "🏝️", "name": "Survival Island",
+        "story": "{hero}, your plane landed on a wild island. The rescue team calls you on the radio. Tell them how long you have been surviving and what you have been doing.",
+        "master": "You are the rescue team on the radio and a strange parrot on the island."},
+    7: {"emoji": "🔮", "name": "The Mystery Box",
+        "story": "Sherlock {hero}, a mysterious box arrived with clues inside. Use your logic: it must be, it might be, it can't be. You can solve it before anyone else.",
+        "master": "You present clues one by one; the hero deduces with must / might / could / can't."},
+    8: {"emoji": "🏰", "name": "Knight of the Kingdom",
+        "story": "Sir {hero}, the Queen just made you a knight. You must learn the rules of the palace, ask the Queen for permission politely, and give advice to the people.",
+        "master": "You are the Queen (very formal), the old knight teacher and the villagers who need advice."},
+    9: {"emoji": "🚒", "name": "City Rescue Team",
+        "story": "Captain {hero}, you lead the rescue team. Cars break down, people fall behind, plans fall through. Every emergency needs the right phrasal verb.",
+        "master": "You are the emergency radio dispatcher who sends new emergencies."},
+    10: {"emoji": "🕶️", "name": "Double Agent",
+        "story": "Agent {hero}, you live two lives: casual talk with your spy friends, and formal talk with the ambassador. One wrong word and your cover is blown!",
+        "master": "You switch between a relaxed spy friend and a very formal ambassador. The hero must change register."},
+    11: {"emoji": "👻", "name": "The Haunted House",
+        "story": "{hero}, you are the ghost hunter. Ghosts wake people up, invite them in, and trick them. Only the right particle and pronoun position can break the spell.",
+        "master": "You are the ghosts and the scared family. Sentences with the wrong pronoun position make the ghost stronger."},
+    12: {"emoji": "📰", "name": "Breaking News",
+        "story": "{hero}, you are the star reporter. There was a break-in, a mix-up, and a big breakthrough today. Your headlines will make you famous.",
+        "master": "You are the news editor and the people you interview."},
+    13: {"emoji": "🐉", "name": "Dragon Diplomat",
+        "story": "{hero}, a dragon speaks only in riddles where words have double meanings. Understand the metaphors and the dragon will become your ally.",
+        "master": "You are the ancient dragon who speaks in literal and metaphorical meanings."},
+    14: {"emoji": "📜", "name": "The Legend of {hero}",
+        "story": "A bard is writing the epic legend of {hero}. Tell your adventures in every tense, full of phrasal verbs, and become a legend.",
+        "master": "You are the bard who asks about the hero's past, present and future adventures."},
+    15: {"emoji": "👑", "name": "The Final Trial",
+        "story": "{hero}, the Council of Masters will test everything you learned. Speak casually to the crowd and formally to the Council. Win, and you become a Master of English.",
+        "master": "You are the Council (formal) and the excited crowd (casual). This is the final boss battle."},
+}
+
+# The 5 levels of every game (Mon-Fri).
 DAYS = [
-    {"day": 1, "name": "Monday", "title": "Learn it by talking", "what": "The grammar of the week, one small rule at a time, and you use each rule about your own life."},
-    {"day": 2, "name": "Tuesday", "title": "Speed drills", "what": "Quick spoken drills: I give you a prompt, you answer fast with the right form, negatives and questions too."},
-    {"day": 3, "name": "Wednesday", "title": "Phrasal verb stories", "what": "Each phrasal verb in a tiny story. Guess the meaning, then use it in your answer. They go to your flashcards."},
-    {"day": 4, "name": "Thursday", "title": "Your life, your words", "what": "I interview you about your life. You must use this week's tense and phrasal verbs (instead of writing sentences)."},
-    {"day": 5, "name": "Friday", "title": "Review quiz", "what": "A spoken quiz on this week, with some questions from earlier weeks, and your score at the end."},
+    {"day": 1, "name": "Level 1", "title": "Training", "what": "Learn the week's grammar inside the story, one small rule at a time."},
+    {"day": 2, "name": "Level 2", "title": "Speed challenge", "what": "Fast prompts: answer quickly with the right form. Every right answer gives XP."},
+    {"day": 3, "name": "Level 3", "title": "Phrasal verb quest", "what": "Each phrasal verb is a key to the next room. They go to your flashcards."},
+    {"day": 4, "name": "Level 4", "title": "Your legend", "what": "Mix the game with your real life: answer as yourself, using the week's grammar."},
+    {"day": 5, "name": "Level 5", "title": "Boss battle", "what": "10 questions against the boss, with earlier weeks too. 3 hearts. Win the badge!"},
 ]
 
 
@@ -196,39 +247,52 @@ def parse_id(lesson_id):
         return None, None
 
 
-def lesson_prompt(lesson_id):
+def game(wn, hero="Hero"):
+    g = GAMES.get(wn)
+    if not g:
+        return None
+    return {**g, "name": g["name"].format(hero=hero), "story": g["story"].format(hero=hero)}
+
+
+def lesson_prompt(lesson_id, hero="Hero"):
     wn, dn = parse_id(lesson_id)
     w = week(wn)
-    if not w or not 1 <= dn <= 5:
+    g = game(wn, hero)
+    if not w or not g or not 1 <= dn <= 5:
         return ""
     grammar = "; ".join(w["grammar"])
     pv = ", ".join(w["phrasal"])
     words = ", ".join(w["words"])
     earlier = [p for x in WEEKS if x["week"] < wn for p in x["phrasal"]][-12:]
     head = (
-        f" This is a PHONE CALL lesson: Week {wn} of a 15-week course, '{w['title']}'. "
-        f"Grammar of the week: {grammar}. Phrasal verbs of the week: {pv}. "
+        f" This is a SPOKEN ADVENTURE GAME on a phone call. Game: '{g['name']}'. Story: {g['story']} "
+        f"You are the game master: {g['master']} The learner is the HERO, called {hero}. Make them feel brave and "
+        "important, describe the scene in one vivid sentence, and keep the story moving. "
+        f"The game secretly trains this grammar: {grammar}. Phrasal verbs: {pv}. "
         + (f"Useful words: {words}. " if words else "")
-        + "Never give long lectures: one idea per turn, then make the learner SPEAK. "
-        "Briefly correct the learner's mistake about this week's grammar before you go on "
-        "(say the correct sentence once, kindly), because this is a lesson. "
-        "Your first message welcomes them in one short sentence and starts the activity right away."
+        + "Every challenge must make the hero SPEAK using that grammar. "
+        "If the hero makes a mistake with the grammar, the story reacts (a door stays locked, the suspect laughs), "
+        "you say the correct sentence once, and give them another try. "
+        "SCORING: at the very end of every reply, after the hero answered a challenge, add exactly one tag: "
+        "[XP+10] for a correct answer, [XP+5] for almost correct, or [MISS] for wrong. "
+        "Do not add a tag in your first message. Never explain the tags. "
+        "Your first message sets the scene in two short sentences and gives the first challenge."
     )
     tasks = {
-        1: " Today (Monday): teach the grammar by conversation. Take the rules one by one: say the rule in one "
-        "simple sentence with one example, then ask a personal question that forces the learner to use it. When they "
-        "get it right twice, move to the next rule. End by asking them to say 3 sentences of their own.",
-        2: " Today (Tuesday): fast speaking drills on the grammar. Each turn give ONE short prompt (a subject + a verb, "
-        "or 'make it negative', 'make it a question', 'change the time'), the learner answers, you say 'Correct!' or give "
-        "the right form, then the next prompt immediately. Keep a score and say it every 5 prompts.",
-        3: " Today (Wednesday): phrasal verbs. For each phrasal verb of the week: tell a 2-sentence mini-story that uses "
-        "it, ask the learner what it means, confirm or explain, then ask a question that makes the learner use it in "
-        "their answer. Then the next verb.",
-        4: " Today (Thursday): interview the learner about their own life (work, family, plans, past experiences) with "
-        "questions that need this week's tense. Every few turns, challenge them to use a specific phrasal verb of the "
-        "week in their next answer.",
-        5: " Today (Friday): a spoken review quiz of 10 questions: 6 on this week's grammar and phrasal verbs, 4 on "
-        "earlier phrasal verbs" + (f" ({', '.join(earlier)})" if earlier else "") + ". Ask one question at a time, say "
-        "if the answer is right, keep score, and at the end give the score and the 2 things to review.",
+        1: " LEVEL 1 - TRAINING: a mentor character teaches the rules one by one inside the story: one rule in one "
+        "simple sentence with an example from the story, then a challenge where the hero must use it. After two good "
+        "answers, the next rule. End with: 'Training complete, hero!'",
+        2: " LEVEL 2 - SPEED CHALLENGE: a countdown game. Each turn give ONE quick prompt from the story (a subject + a "
+        "verb, 'make it negative', 'turn it into a question', 'change the time'). The hero answers, you react in a few "
+        "words and give the next prompt at once. Every 5 prompts announce the combo.",
+        3: " LEVEL 3 - PHRASAL VERB QUEST: each phrasal verb is a magic key. For each one: a 2-sentence scene that uses it, "
+        "the hero guesses what it means, then the hero must say a sentence with it to open the door to the next room.",
+        4: " LEVEL 4 - YOUR LEGEND: the characters ask the hero about their REAL life (work, family, plans, memories) "
+        "as if it were part of the legend. Questions need this week's grammar. Every few turns, ask them to use a "
+        "specific phrasal verb of the week.",
+        5: " LEVEL 5 - BOSS BATTLE: the main villain or judge attacks with 10 questions: 6 on this week, 4 on earlier "
+        "phrasal verbs" + (f" ({', '.join(earlier)})" if earlier else "") + ". The hero has 3 hearts; each [MISS] costs a "
+        "heart. Describe each hit dramatically. After question 10, announce victory (or a heroic defeat) and the 2 "
+        "things to train more.",
     }
     return head + tasks[dn]

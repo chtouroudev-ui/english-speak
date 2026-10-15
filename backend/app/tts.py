@@ -43,6 +43,7 @@ def get_voice(accent="us"):
 
 
 def clean_for_speech(text):
+    text = re.sub(r"\[(?:XP\+\d+|MISS)\]", "", text)
     text = re.sub(r"[*_#`>~]+", "", text)
     text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
     return re.sub(r"\s+", " ", text).strip()

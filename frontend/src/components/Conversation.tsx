@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, streamChat, type Correction, type Summary, type Transcript } from '../lib/api'
 import { useSettings } from '../lib/settings'
-import { speaker } from '../lib/tts'
+import { scoreOf, speaker, stripTags } from '../lib/tts'
 import { useVoice, type VoiceResult } from '../lib/voice'
 import { Message, type Msg } from './Message'
 import { MicButton } from './MicButton'
@@ -24,7 +24,7 @@ function useSpeaking() {
   return speaking
 }
 
-export function Conversation({ mode, scenarioId, image, autoStart, header, storageKey, openSessionId, onEnded }: {
+export function Conversation({ mode, scenarioId, image, autoStart, header, storageKey, openSessionId, onEnded, game }: {
   mode: string
   scenarioId?: string
   image?: string | null
@@ -36,6 +36,8 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
   /** Open a saved conversation from the history. */
   openSessionId?: number | null
   onEnded?: (s: Summary) => void
+  /** Game mode: show XP and hearts from the AI's score tags. */
+  game?: boolean
 }) {
   const { settings } = useSettings()
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -52,6 +54,8 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
   const [loading, setLoading] = useState(false)
   const [callStart, setCallStart] = useState(0)
   const [now, setNow] = useState(0)
+  const [score, setScore] = useState({ xp: 0, miss: 0 })
+  const [pop, setPop] = useState<string | null>(null)
   const sessionRef = useRef<number | null>(null)
   const imageSent = useRef(false)
   const bottom = useRef<HTMLDivElement>(null)
@@ -80,11 +84,12 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
         sessionRef.current = id
         setSessionId(id)
         if (storageKey) store.set(storageKey, String(id))
+        setScore(scoreOf(r.messages.filter((m) => m.role === 'assistant').map((m) => m.content).join(' ')))
         setMsgs(
           r.messages.map((m) => ({
             key: k(),
             role: m.role,
-            text: m.content,
+            text: stripTags(m.content),
             id: m.id,
             correction: m.correction,
             speech: m.role === 'user' && m.wpm ? ({ wpm: Math.round(m.wpm), words: [], pauses: [], fillers: 0 } as unknown as Transcript) : undefined,
@@ -131,9 +136,15 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
           } else if (e.type === 'delta') {
             full += e.text
             voiceOut.push(e.text)
-            patch(aiKey, { text: full })
+            patch(aiKey, { text: stripTags(full) })
           } else if (e.type === 'done') {
             patch(aiKey, { id: e.message_id, streaming: false })
+            const got = scoreOf(full)
+            if (got.xp || got.miss) {
+              setScore((sc) => ({ xp: sc.xp + got.xp, miss: sc.miss + got.miss }))
+              setPop(got.xp ? `+${got.xp} XP` : '💔')
+              setTimeout(() => setPop(null), 1800)
+            }
           } else if (e.type === 'error') {
             throw new Error(e.message)
           }
@@ -200,6 +211,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
     sessionRef.current = null
     imageSent.current = false
     setSummary(null)
+    setScore({ xp: 0, miss: 0 })
     if (storageKey) store.set(storageKey, null)
   }
 
@@ -223,6 +235,15 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
   return (
     <div className="flex h-full flex-col">
       {header}
+
+      {game && (
+        <div className="relative flex items-center justify-between bg-amber-50 px-4 py-2 text-sm font-semibold dark:bg-amber-950/30">
+          <span>⭐ {score.xp} XP</span>
+          <span>{'⭐'.repeat(Math.min(3, Math.floor(score.xp / 20)))}<span className="opacity-30">{'⭐'.repeat(3 - Math.min(3, Math.floor(score.xp / 20)))}</span></span>
+          <span aria-label={`${Math.max(0, 3 - score.miss)} hearts`}>{'❤️'.repeat(Math.max(0, 3 - score.miss))}<span className="opacity-30">{'🤍'.repeat(Math.min(3, score.miss))}</span></span>
+          {pop && <span className="pointer-events-none absolute inset-x-0 -bottom-8 z-10 animate-bounce text-center text-2xl font-black text-amber-500 drop-shadow">{pop}</span>}
+        </div>
+      )}
 
       {inCall && (
         <div className="flex flex-col items-center gap-2 border-b border-slate-200 bg-gradient-to-b from-indigo-600 to-indigo-700 px-4 py-5 text-white dark:border-slate-800">
@@ -269,7 +290,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
           <div className="mx-auto flex max-w-2xl items-center justify-center gap-3">
             <button className="btn-ghost btn-small" onClick={newConversation} disabled={!msgs.length}><Icon name="plus" className="h-4 w-4" /> New</button>
             <button className="btn h-14 flex-1 rounded-full bg-emerald-500 text-base text-white shadow-lg hover:bg-emerald-400 sm:flex-none sm:px-10" onClick={startCall} disabled={ending || loading}>
-              {ending ? <Spinner /> : '📞'} {msgs.length ? 'Continue the call' : 'Start call'}
+              {ending ? <Spinner /> : '📞'} {msgs.length ? (game ? 'Continue the game' : 'Continue the call') : game ? 'Start the game' : 'Start call'}
             </button>
             <button className="btn-ghost btn-small" onClick={() => setHelpOpen(true)}><Icon name="help" className="h-4 w-4" /> Help</button>
           </div>
@@ -342,7 +363,14 @@ export function SummaryModal({ summary, onClose, onNew }: { summary: Summary; on
   }
   const st = summary.stats
   return (
-    <Modal title="Session summary" onClose={onClose}>
+    <Modal title={summary.xp !== undefined ? (summary.lesson_done ? 'Level complete! 🏆' : 'Game over') : 'Session summary'} onClose={onClose}>
+      {summary.xp !== undefined && (
+        <div className="mb-4 text-center">
+          <div className="text-4xl">{'⭐'.repeat(summary.stars || 0)}<span className="opacity-25">{'⭐'.repeat(3 - (summary.stars || 0))}</span></div>
+          <div className="mt-1 text-2xl font-black text-amber-500">+{summary.xp} XP</div>
+          {!summary.lesson_done && <p className="text-xs text-slate-500">Answer at least 4 challenges to complete the level.</p>}
+        </div>
+      )}
       {st && (
         <div className="mb-4 grid grid-cols-3 gap-2 text-center">
           <div className="card !p-2"><div className="text-xl font-bold">{Math.round(st.seconds / 6) / 10}</div><div className="text-xs text-slate-500">minutes spoken</div></div>

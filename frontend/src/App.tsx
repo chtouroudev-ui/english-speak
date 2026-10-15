@@ -13,7 +13,7 @@ import { Settings } from './pages/Settings'
 
 const PAGES = [
   { id: 'talk', label: 'Call', icon: 'chat' },
-  { id: 'course', label: 'Course', icon: 'target' },
+  { id: 'course', label: 'Games', icon: 'flame' },
   { id: 'practice', label: 'Practice', icon: 'ear' },
   { id: 'picture', label: 'Picture', icon: 'image' },
   { id: 'review', label: 'Review', icon: 'book' },
