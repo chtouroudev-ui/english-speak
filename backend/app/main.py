@@ -137,7 +137,7 @@ class ChatIn(BaseModel):
     start: bool = False  # ask the AI to speak first
 
 
-def _history(session_id, limit=16):
+def _history(session_id, limit=10):
     rows = db.query(
         "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?",
         (session_id, limit),
@@ -207,7 +207,7 @@ async def chat(body: ChatIn):
         yield _sse({"type": "session", "session_id": sid, "user_message_id": None if body.start else user_msg_id})
         parts = []
         try:
-            async for piece in llm.stream_chat(s, messages, model=model):
+            async for piece in llm.stream_chat(s, messages, model=model, max_tokens=150):
                 parts.append(piece)
                 yield _sse({"type": "delta", "text": piece})
         except Exception as e:  # noqa: BLE001 - reported to the browser

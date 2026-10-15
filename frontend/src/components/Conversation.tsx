@@ -54,6 +54,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
     setThinking(true)
     const voiceOut = speaker.stream()
     let full = ''
+    let userMsgId: number | null = null
     try {
       await streamChat(
         {
@@ -70,12 +71,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
             sessionRef.current = e.session_id
             setSessionId(e.session_id)
             if (img) imageSent.current = true
-            if (e.user_message_id && !start) {
-              if (settings?.correction_style === 'off') return
-              api<Correction>('/api/correct', { method: 'POST', json: { message_id: e.user_message_id, text } })
-                .then((c) => patch(userKey, { correction: c, correcting: false }))
-                .catch(() => patch(userKey, { correcting: false }))
-            }
+            if (e.user_message_id && !start) userMsgId = e.user_message_id
           } else if (e.type === 'delta') {
             full += e.text
             voiceOut.push(e.text)
@@ -88,6 +84,12 @@ export function Conversation({ mode, scenarioId, image, autoStart, startLabel, h
         },
       )
       voiceOut.end()
+      // Corrections run after the answer, so the answer gets the CPU first on a small server.
+      if (userMsgId && settings?.correction_style !== 'off') {
+        api<Correction>('/api/correct', { method: 'POST', json: { message_id: userMsgId, text } })
+          .then((c) => patch(userKey, { correction: c, correcting: false }))
+          .catch(() => patch(userKey, { correcting: false }))
+      }
     } catch (e) {
       setError(`The model did not answer: ${e instanceof Error ? e.message : e}. Check Settings → Model.`)
       setMsgs((all) => all.filter((m) => m.key !== aiKey))

@@ -50,7 +50,7 @@ def pick_model(settings, has_image):
     return settings["llm_model"]
 
 
-async def stream_chat(settings, messages, model=None, temperature=0.7):
+async def stream_chat(settings, messages, model=None, temperature=0.7, max_tokens=None):
     """Yield text pieces as the model writes them."""
     model = model or settings["llm_model"]
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
@@ -61,6 +61,8 @@ async def stream_chat(settings, messages, model=None, temperature=0.7):
                 "stream": True,
                 "options": {"temperature": temperature},
             }
+            if max_tokens:
+                body["options"]["num_predict"] = max_tokens
             async with client.stream(
                 "POST", f"{_base(settings)}/api/chat", json=body, headers=_headers(settings)
             ) as r:
@@ -81,6 +83,8 @@ async def stream_chat(settings, messages, model=None, temperature=0.7):
                 "stream": True,
                 "temperature": temperature,
             }
+            if max_tokens:
+                body["max_tokens"] = max_tokens
             async with client.stream(
                 "POST",
                 f"{_base(settings)}/chat/completions",
