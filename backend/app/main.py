@@ -89,10 +89,10 @@ async def _save_upload(file: UploadFile):
 
 
 @app.post("/api/stt")
-async def speech_to_text(audio: UploadFile = File(...)):
+async def speech_to_text(audio: UploadFile = File(...), context: str = Form("")):
     path = await _save_upload(audio)
     try:
-        return await run_in_threadpool(stt.transcribe, path, settings()["whisper_model"])
+        return await run_in_threadpool(stt.transcribe, path, settings()["whisper_model"], context[-300:])
     finally:
         path.unlink(missing_ok=True)
 

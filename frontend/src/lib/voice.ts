@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Transcript, type Word } from './api'
-import { speaker } from './tts'
+import { speaker, stripTags } from './tts'
 import type { Settings } from './settings'
 
 export type VoiceResult = Transcript & { blob: Blob | null; audioUrl: string | null }
@@ -60,36 +60,52 @@ async function browserWhisper(blob: Blob): Promise<Transcript> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 
-export async function transcribeBlob(blob: Blob, engine: Settings['stt_engine']): Promise<Transcript> {
+export async function transcribeBlob(blob: Blob, engine: Settings['stt_engine'], context = ''): Promise<Transcript> {
   if (engine === 'browser-whisper') return browserWhisper(blob)
   const fd = new FormData()
   fd.append('audio', blob, blob.type.includes('wav') ? 'audio.wav' : blob.type.includes('mp4') ? 'audio.mp4' : 'audio.webm')
+  // What the AI just said helps Whisper guess the right words in your answer.
+  if (context) fd.append('context', stripTags(context).slice(-300))
   return api<Transcript>('/api/stt', { method: 'POST', body: fd })
 }
 
 /** Mono PCM chunks -> 16 kHz 16-bit WAV (small upload, and Whisper works at 16 kHz anyway). */
-function toWav(chunks: Float32Array[], rate: number): Blob {
+async function toWav(chunks: Float32Array[], rate: number): Promise<Blob> {
   const total = chunks.reduce((n, c) => n + c.length, 0)
-  const step = rate / 16000
-  const n = Math.floor(total / step)
-  const out = new Int16Array(n)
   const all = new Float32Array(total)
   let o = 0
   for (const c of chunks) { all.set(c, o); o += c.length }
+  // The browser's own resampler filters properly, so the voice stays clear.
+  let pcm = all
+  try {
+    const off = new OfflineAudioContext(1, Math.ceil((total * 16000) / rate), 16000)
+    const src = off.createBuffer(1, total, rate)
+    src.copyToChannel(all, 0)
+    const node = off.createBufferSource()
+    node.buffer = src
+    node.connect(off.destination)
+    node.start()
+    pcm = (await off.startRendering()).getChannelData(0)
+  } catch {
+    /* old browser: send the original samples at their own rate */
+  }
+  // Make quiet voices louder (Whisper hears them better), without clipping.
+  let peak = 0
+  for (const v of pcm) peak = Math.max(peak, Math.abs(v))
+  const gain = peak > 0 && peak < 0.5 ? Math.min(4, 0.7 / peak) : 1
+  const n = pcm.length
+  const out = new Int16Array(n)
   for (let i = 0; i < n; i++) {
-    const a = Math.floor(i * step)
-    const b = Math.max(a + 1, Math.floor((i + 1) * step))
-    let sum = 0
-    for (let k = a; k < b && k < total; k++) sum += all[k]
-    const v = Math.max(-1, Math.min(1, sum / (b - a)))
+    const v = Math.max(-1, Math.min(1, pcm[i] * gain))
     out[i] = v < 0 ? v * 0x8000 : v * 0x7fff
   }
+  const outRate = pcm === all ? rate : 16000
   const buf = new ArrayBuffer(44 + out.byteLength)
   const d = new DataView(buf)
   const str = (off: number, t: string) => { for (let i = 0; i < t.length; i++) d.setUint8(off + i, t.charCodeAt(i)) }
   str(0, 'RIFF'); d.setUint32(4, 36 + out.byteLength, true); str(8, 'WAVE'); str(12, 'fmt ')
-  d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, 16000, true)
-  d.setUint32(28, 32000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); str(36, 'data')
+  d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, outRate, true)
+  d.setUint32(28, outRate * 2, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); str(36, 'data')
   d.setUint32(40, out.byteLength, true)
   new Int16Array(buf, 44).set(out)
   return new Blob([buf], { type: 'audio/wav' })
@@ -102,6 +118,8 @@ type Opts = {
   onError?: (msg: string) => void
   /** If set, return the raw recording without transcribing (the caller sends it to the server). */
   rawOnly?: boolean
+  /** The AI's last message, sent to Whisper as a hint. */
+  context?: string
   /** Hands-free mode does not start listening while this is true (e.g. the AI is still writing). */
   paused?: boolean
 }
@@ -176,7 +194,7 @@ export function useVoice(opts: Opts) {
         })
         t = textStats(recogText.current.trim(), duration)
       } else {
-        t = await transcribeBlob(blob, o.engine === 'browser-native' ? 'server' : o.engine)
+        t = await transcribeBlob(blob, o.engine === 'browser-native' ? 'server' : o.engine, o.context)
       }
       if (t.text.trim()) o.onResult({ ...t, blob, audioUrl })
       else o.onError?.("I didn't hear anything. Try again, a bit louder.")
@@ -265,7 +283,7 @@ export function useVoice(opts: Opts) {
           clip = []
           const seconds = n / rate
           if (seconds < 0.5 || performance.now() - capStart < 300) return
-          deliver(toWav(out, rate), seconds)
+          toWav(out, rate).then((w) => deliver(w, seconds))
         }
         hf.current.finish = () => end(0)
         const data = new Float32Array(an.fftSize)

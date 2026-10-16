@@ -12,7 +12,7 @@ FILLERS = {"uh", "um", "umm", "uhm", "er", "erm", "hmm", "ah", "eh", "mm"}
 FILLER_PROMPT = "Umm, let me think, uh, like, hmm."
 # Whisper often "hears" these in silence or noise at the end of a clip.
 GHOSTS = {"thank you", "thanks", "thank you very much", "thanks for watching", "thank you for watching",
-          "you", "bye", "okay", "so", "subtitles by the amara org community"}
+          "you", "bye", "subtitles by the amara org community"}
 
 
 def _model(name):
@@ -31,7 +31,7 @@ def _model(name):
         return _models[name]
 
 
-def transcribe(path, model_name="small.en"):
+def transcribe(path, model_name="small.en", context=""):
     # Learners speak English here, so the English-only models are more accurate.
     name = {"tiny": "base.en", "tiny.en": "base.en", "base": "base.en", "small": "small.en"}.get(model_name, model_name)
     if name not in {"base.en", "small.en"}:
@@ -42,7 +42,10 @@ def transcribe(path, model_name="small.en"):
         beam_size=3,
         word_timestamps=True,
         vad_filter=True,
-        initial_prompt=FILLER_PROMPT,
+        # Softer voices still count as speech.
+        vad_parameters={"threshold": 0.35, "speech_pad_ms": 500},
+        # The question the learner answers is a strong hint for the words in the answer.
+        initial_prompt=(context.strip() + " " + FILLER_PROMPT).strip() if context else FILLER_PROMPT,
         condition_on_previous_text=False,
         hallucination_silence_threshold=1.0,
         no_speech_threshold=0.5,

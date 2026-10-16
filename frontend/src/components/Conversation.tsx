@@ -172,6 +172,7 @@ export function Conversation({ mode, scenarioId, image, autoStart, header, stora
     engine: settings?.stt_engine || 'server',
     handsFree: inCall && !muted && !pushMode,
     paused: thinking,
+    context: [...msgs].reverse().find((m) => m.role === 'assistant')?.text,
     onResult: (r) => send(r.text, r),
     onError: setError,
   })
