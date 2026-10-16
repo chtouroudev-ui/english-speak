@@ -108,7 +108,7 @@ export function Settings() {
           <select className="input" value={settings.stt_engine} onChange={(e) => saveNow({ stt_engine: e.target.value as S['stt_engine'] })}>
             <option value="server">Whisper on my server (recommended)</option>
             <option value="browser-whisper">Whisper in the browser</option>
-            <option value="browser-native">Browser built-in</option>
+            <option value="browser-native">Browser built-in (fast and accurate in Chrome, voice goes to Google)</option>
           </select>
         </Field>
         <Field label="Whisper model size" hint="English models (.en) understand English better. small.en is the most accurate; base.en is about 3× faster.">

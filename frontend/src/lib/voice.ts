@@ -193,6 +193,9 @@ export function useVoice(opts: Opts) {
           setTimeout(resolve, 1500)
         })
         t = textStats(recogText.current.trim(), duration)
+        recogText.current = ''
+        // The browser heard nothing: ask the server instead.
+        if (!t.text) t = await transcribeBlob(blob, 'server', o.context)
       } else {
         t = await transcribeBlob(blob, o.engine === 'browser-native' ? 'server' : o.engine, o.context)
       }
@@ -228,6 +231,7 @@ export function useVoice(opts: Opts) {
     let alive = true
     let ctx: AudioContext | null = null
     let timer = 0
+    let stopSR = () => {}
     ;(async () => {
       try {
         const stream = await micStream()
@@ -258,6 +262,45 @@ export function useVoice(opts: Opts) {
             while (preLen - pre[0].length > PRE) preLen -= pre.shift()!.length
           }
         }
+        // Browser speech recognition runs all through the call; its text is taken when you stop.
+        const native = optsRef.current.engine === 'browser-native' && SR && !optsRef.current.rawOnly
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let sr: any = null
+        const startSR = () => {
+          if (!native || !alive || sr) return
+          const r = new SR()
+          r.lang = 'en-US'
+          r.continuous = true
+          r.interimResults = false
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          r.onresult = (e: any) => {
+            if (speaker.speaking || optsRef.current.paused) return // the AI's own voice
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              if (e.results[i].isFinal) recogText.current += ' ' + e.results[i][0].transcript
+            }
+          }
+          r.onerror = () => {}
+          r.onend = () => {
+            // Chrome stops long sessions by itself: start again.
+            if (sr === r) {
+              sr = null
+              setTimeout(startSR, 200)
+            }
+          }
+          try {
+            r.start()
+            sr = r
+          } catch {
+            /* not allowed here: the server is used */
+          }
+        }
+        recogText.current = ''
+        startSR()
+        stopSR = () => {
+          const r = sr
+          sr = null
+          r?.abort()
+        }
         let capStart = 0
         const begin = () => {
           clip = pre
@@ -283,7 +326,11 @@ export function useVoice(opts: Opts) {
           clip = []
           const seconds = n / rate
           if (seconds < 0.5 || performance.now() - capStart < 300) return
-          toWav(out, rate).then((w) => deliver(w, seconds))
+          if (native) {
+            recog.current = sr // deliver() stops it and takes its text
+            sr = null
+          }
+          toWav(out, rate).then((w) => deliver(w, seconds)).finally(startSR)
         }
         hf.current.finish = () => end(0)
         const data = new Float32Array(an.fftSize)
@@ -331,6 +378,7 @@ export function useVoice(opts: Opts) {
     })()
     return () => {
       alive = false
+      stopSR()
       clearInterval(timer)
       hf.current.capturing = false
       hf.current.finish = null
