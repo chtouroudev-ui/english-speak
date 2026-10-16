@@ -100,7 +100,7 @@ LLM_API=openai
 LLM_MODEL=$LLM_MODEL
 VISION_MODEL=$VISION_MODEL
 VISION_ENABLED=$([[ -n "$VISION_MODEL" ]] && echo true || echo false)
-WHISPER_MODEL=base
+WHISPER_MODEL=small.en
 WHISPER_THREADS=2
 ENV
 if [[ -z "$KEEP_LOGIN" ]]; then

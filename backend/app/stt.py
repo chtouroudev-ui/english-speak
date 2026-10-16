@@ -31,12 +31,15 @@ def _model(name):
         return _models[name]
 
 
-def transcribe(path, model_name="base"):
-    name = model_name if model_name in {"tiny", "base", "small", "tiny.en", "base.en", "small.en"} else "base"
+def transcribe(path, model_name="small.en"):
+    # Learners speak English here, so the English-only models are more accurate.
+    name = {"tiny": "base.en", "tiny.en": "base.en", "base": "base.en", "small": "small.en"}.get(model_name, model_name)
+    if name not in {"base.en", "small.en"}:
+        name = "small.en"
     segments, info = _model(name).transcribe(
         str(path),
         language="en",
-        beam_size=1,
+        beam_size=3,
         word_timestamps=True,
         vad_filter=True,
         initial_prompt=FILLER_PROMPT,

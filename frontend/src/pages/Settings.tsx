@@ -111,8 +111,8 @@ export function Settings() {
             <option value="browser-native">Browser built-in</option>
           </select>
         </Field>
-        <Field label="Whisper model size" hint="base: fast on 2 CPUs. small: more accurate, about 3× slower.">
-          <Segmented value={settings.whisper_model} onChange={(x) => saveNow({ whisper_model: x })} options={[{ value: 'tiny', label: 'tiny' }, { value: 'base', label: 'base' }, { value: 'small', label: 'small' }]} />
+        <Field label="Whisper model size" hint="English models (.en) understand English better. small.en is the most accurate; base.en is about 3× faster.">
+          <Segmented value={settings.whisper_model} onChange={(x) => saveNow({ whisper_model: x })} options={[{ value: 'base.en', label: 'base.en (fast)' }, { value: 'small.en', label: 'small.en (accurate)' }]} />
         </Field>
         <Field label="Talking mode">
           <Segmented<S['talk_mode']> value={settings.talk_mode} onChange={(x) => saveNow({ talk_mode: x })} options={[{ value: 'call', label: 'Phone call (hands-free)' }, { value: 'push', label: 'Tap to talk (noisy places)' }]} />

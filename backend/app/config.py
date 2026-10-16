@@ -19,7 +19,7 @@ DEFAULT_SETTINGS = {
     "voice_speed": 1.0,
     "tts_engine": "piper",  # piper | browser
     "stt_engine": "server",  # server | browser-whisper | browser-native
-    "whisper_model": os.getenv("WHISPER_MODEL", "base"),
+    "whisper_model": os.getenv("WHISPER_MODEL", "small.en"),
     "native_language": "",
     "job": "",
     "hero_name": "",

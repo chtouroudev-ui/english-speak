@@ -23,7 +23,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:3b}
       VISION_MODEL: ${VISION_MODEL:-}
       VISION_ENABLED: ${VISION_ENABLED:-false}
-      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small.en}
       WHISPER_THREADS: ${WHISPER_THREADS:-2}
     extra_hosts:
       - "host.docker.internal:host-gateway"

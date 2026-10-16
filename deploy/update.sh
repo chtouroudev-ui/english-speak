@@ -20,9 +20,20 @@ if ! grep -q 'http://:8081' Caddyfile && grep -q '^COMPOSE_PROFILES=.*tunnel' .e
   bash deploy/tunnel.sh >/dev/null || true
 fi
 
+# More accurate speech recognition: English-only Whisper "small" (once; you can change it in Settings).
+sed -i 's/^WHISPER_MODEL=\(tiny\|base\|small\)$/WHISPER_MODEL=small.en/' .env 2>/dev/null || true
+
 $DC up -d --build
 # Settings saved in the app win over .env, so turn the image page off there too.
 $DC exec -T app python -c "from app import db; db.save_settings({'vision_enabled': False})" >/dev/null 2>&1 || true
+$DC exec -T app python -c "
+from app import db, stt
+s = db.get_settings()
+if s['whisper_model'] in ('tiny', 'base', 'small'):
+    db.save_settings({'whisper_model': 'small.en'})
+print('Loading the speech model (the first time it downloads about 250 MB)...')
+stt._model(db.get_settings()['whisper_model'])
+" || true
 
 echo
 echo "Updated."
