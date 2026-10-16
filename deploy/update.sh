@@ -31,6 +31,11 @@ from app import db, stt
 s = db.get_settings()
 if s['whisper_model'] in ('tiny', 'base', 'small'):
     db.save_settings({'whisper_model': 'small.en'})
+import os
+# Once: the user chose Chrome's speech recognition (fast and precise; the server is the fallback).
+if not os.path.exists(db.DATA_DIR / '.stt-chrome'):
+    db.save_settings({'stt_engine': 'browser-native'})
+    (db.DATA_DIR / '.stt-chrome').touch()
 print('Loading the speech model (the first time it downloads about 250 MB)...')
 stt._model(db.get_settings()['whisper_model'])
 " || true
