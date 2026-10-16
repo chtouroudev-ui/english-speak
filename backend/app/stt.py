@@ -9,7 +9,10 @@ _lock = threading.Lock()
 
 FILLERS = {"uh", "um", "umm", "uhm", "er", "erm", "hmm", "ah", "eh", "mm"}
 # A short prompt full of fillers makes Whisper keep "uh/um" instead of hiding them.
-FILLER_PROMPT = "Umm, let me think, uh, like, hmm. Okay, so I went to the, uh, store."
+FILLER_PROMPT = "Umm, let me think, uh, like, hmm."
+# Whisper often "hears" these in silence or noise at the end of a clip.
+GHOSTS = {"thank you", "thanks", "thank you very much", "thanks for watching", "thank you for watching",
+          "you", "bye", "okay", "so", "subtitles by the amara org community"}
 
 
 def _model(name):
@@ -38,10 +41,14 @@ def transcribe(path, model_name="base"):
         vad_filter=True,
         initial_prompt=FILLER_PROMPT,
         condition_on_previous_text=False,
+        hallucination_silence_threshold=1.0,
+        no_speech_threshold=0.5,
     )
     words = []
     text_parts = []
     for seg in segments:
+        if _ghost(seg):
+            continue
         text_parts.append(seg.text)
         for w in seg.words or []:
             words.append(
@@ -54,6 +61,18 @@ def transcribe(path, model_name="base"):
             )
     text = " ".join(t.strip() for t in text_parts).strip()
     return {"text": text, "words": words, "duration": round(info.duration, 2), **speech_stats(words)}
+
+
+def _ghost(seg):
+    """A made-up segment: a typical ghost phrase that Whisper is not sure about."""
+    text = " ".join(_clean(w) for w in seg.text.split() if _clean(w))
+    if not text:
+        return True
+    probs = [w.probability for w in seg.words or []]
+    unsure = (sum(probs) / len(probs) < 0.6) if probs else True
+    if text in GHOSTS and (unsure or seg.no_speech_prob > 0.3 or seg.avg_logprob < -0.6):
+        return True
+    return seg.no_speech_prob > 0.7 and seg.avg_logprob < -0.8
 
 
 def speech_stats(words):

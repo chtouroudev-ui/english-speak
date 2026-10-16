@@ -63,8 +63,36 @@ const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeec
 export async function transcribeBlob(blob: Blob, engine: Settings['stt_engine']): Promise<Transcript> {
   if (engine === 'browser-whisper') return browserWhisper(blob)
   const fd = new FormData()
-  fd.append('audio', blob, blob.type.includes('mp4') ? 'audio.mp4' : 'audio.webm')
+  fd.append('audio', blob, blob.type.includes('wav') ? 'audio.wav' : blob.type.includes('mp4') ? 'audio.mp4' : 'audio.webm')
   return api<Transcript>('/api/stt', { method: 'POST', body: fd })
+}
+
+/** Mono PCM chunks -> 16 kHz 16-bit WAV (small upload, and Whisper works at 16 kHz anyway). */
+function toWav(chunks: Float32Array[], rate: number): Blob {
+  const total = chunks.reduce((n, c) => n + c.length, 0)
+  const step = rate / 16000
+  const n = Math.floor(total / step)
+  const out = new Int16Array(n)
+  const all = new Float32Array(total)
+  let o = 0
+  for (const c of chunks) { all.set(c, o); o += c.length }
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * step)
+    const b = Math.max(a + 1, Math.floor((i + 1) * step))
+    let sum = 0
+    for (let k = a; k < b && k < total; k++) sum += all[k]
+    const v = Math.max(-1, Math.min(1, sum / (b - a)))
+    out[i] = v < 0 ? v * 0x8000 : v * 0x7fff
+  }
+  const buf = new ArrayBuffer(44 + out.byteLength)
+  const d = new DataView(buf)
+  const str = (off: number, t: string) => { for (let i = 0; i < t.length; i++) d.setUint8(off + i, t.charCodeAt(i)) }
+  str(0, 'RIFF'); d.setUint32(4, 36 + out.byteLength, true); str(8, 'WAVE'); str(12, 'fmt ')
+  d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, 16000, true)
+  d.setUint32(28, 32000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); str(36, 'data')
+  d.setUint32(40, out.byteLength, true)
+  new Int16Array(buf, 44).set(out)
+  return new Blob([buf], { type: 'audio/wav' })
 }
 
 type Opts = {
@@ -127,17 +155,8 @@ export function useVoice(opts: Opts) {
     }
   }, [])
 
-  const stop = useCallback(async () => {
-    const r = rec.current
-    if (!r) return
-    rec.current = null
-    setRecording(false)
-    const duration = (performance.now() - startedAt.current) / 1000
-    const blob = await new Promise<Blob>((resolve) => {
-      r.onstop = () => resolve(new Blob(chunks.current, { type: r.mimeType || 'audio/webm' }))
-      r.stop()
-    })
-    if (duration < 0.4) return
+  /** Send a finished recording: raw to the caller, or transcribed. */
+  const deliver = useCallback(async (blob: Blob, duration: number) => {
     const audioUrl = URL.createObjectURL(blob)
     const o = optsRef.current
     if (o.rawOnly) {
@@ -168,7 +187,24 @@ export function useVoice(opts: Opts) {
     }
   }, [])
 
-  // Hands-free: listen to the mic level, start when you speak, stop after 1.2 s of silence.
+  const stop = useCallback(async () => {
+    const r = rec.current
+    if (!r) return
+    rec.current = null
+    setRecording(false)
+    const duration = (performance.now() - startedAt.current) / 1000
+    const blob = await new Promise<Blob>((resolve) => {
+      r.onstop = () => resolve(new Blob(chunks.current, { type: r.mimeType || 'audio/webm' }))
+      r.stop()
+    })
+    if (duration < 0.4) return
+    await deliver(blob, duration)
+  }, [deliver])
+
+  // Hands-free: the mic is always captured into memory. When you start to speak, the last
+  // second before it is kept too, so the first word is never cut. After 1.2 s of silence the
+  // clip is sent, without the silent tail (silence makes Whisper invent words like "Thank you").
+  const hf = useRef<{ capturing: boolean; finish: (() => void) | null }>({ capturing: false, finish: null })
   useEffect(() => {
     if (!opts.handsFree) return
     let alive = true
@@ -179,10 +215,59 @@ export function useVoice(opts: Opts) {
         const stream = await micStream()
         if (!alive) return
         ctx = new AudioContext()
+        const rate = ctx.sampleRate
         const src = ctx.createMediaStreamSource(stream)
         const an = ctx.createAnalyser()
         an.fftSize = 1024
         src.connect(an)
+        // Raw samples (ScriptProcessor is old but works everywhere, also on iPhone).
+        const proc = ctx.createScriptProcessor(2048, 1, 1)
+        const mute = ctx.createGain()
+        mute.gain.value = 0
+        src.connect(proc)
+        proc.connect(mute).connect(ctx.destination)
+        const PRE = rate * 1.0
+        let pre: Float32Array[] = []
+        let preLen = 0
+        let clip: Float32Array[] = []
+        proc.onaudioprocess = (e) => {
+          const x = new Float32Array(e.inputBuffer.getChannelData(0))
+          if (hf.current.capturing) {
+            clip.push(x)
+          } else {
+            pre.push(x)
+            preLen += x.length
+            while (preLen - pre[0].length > PRE) preLen -= pre.shift()!.length
+          }
+        }
+        let capStart = 0
+        const begin = () => {
+          clip = pre
+          pre = []
+          preLen = 0
+          capStart = performance.now()
+          hf.current.capturing = true
+          speaker.stop()
+          setRecording(true)
+        }
+        const end = (silentMs: number) => {
+          hf.current.capturing = false
+          setRecording(false)
+          const keep = clip.reduce((n, c) => n + c.length, 0) - Math.max(0, silentMs - 300) / 1000 * rate
+          const out: Float32Array[] = []
+          let n = 0
+          for (const c of clip) {
+            if (n >= keep) break
+            const part = n + c.length > keep ? c.subarray(0, Math.max(0, Math.floor(keep - n))) : c
+            out.push(part)
+            n += part.length
+          }
+          clip = []
+          const seconds = n / rate
+          if (seconds < 0.5 || performance.now() - capStart < 300) return
+          deliver(toWav(out, rate), seconds)
+        }
+        hf.current.finish = () => end(0)
         const data = new Float32Array(an.fftSize)
         let floor = 0.01
         let loud = 0
@@ -199,21 +284,26 @@ export function useVoice(opts: Opts) {
             return
           }
           const threshold = Math.max(0.02, floor * 2.5)
-          if (speaker.speaking || busyRef.current || optsRef.current.paused) {
+          if (speaker.speaking || busyRef.current || optsRef.current.paused || rec.current) {
             loud = quiet = 0
+            if (hf.current.capturing && !rec.current) {
+              hf.current.capturing = false
+              clip = []
+              setRecording(false)
+            }
             return
           }
-          if (!rec.current) {
+          if (!hf.current.capturing) {
             loud = rms > threshold ? loud + 50 : 0
             if (loud >= 150) {
               loud = 0
-              start()
+              begin()
             }
           } else {
             quiet = rms < threshold ? quiet + 50 : 0
             if (quiet >= 1200) {
+              end(quiet)
               quiet = 0
-              stop()
             }
           }
         }, 50)
@@ -224,10 +314,17 @@ export function useVoice(opts: Opts) {
     return () => {
       alive = false
       clearInterval(timer)
+      hf.current.capturing = false
+      hf.current.finish = null
       ctx?.close()
       if (rec.current) stop()
     }
-  }, [opts.handsFree, start, stop])
+  }, [opts.handsFree, deliver, stop])
 
-  return { start, stop, recording, busy, level, toggle: () => (rec.current ? stop() : start()) }
+  const toggle = () => {
+    if (hf.current.capturing && hf.current.finish) return hf.current.finish()
+    return rec.current ? stop() : start()
+  }
+
+  return { start, stop, recording, busy, level, toggle }
 }
