@@ -15,3 +15,12 @@ body {
 @utility label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
 @utility chip { @apply rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 dark:ring-slate-700 whitespace-nowrap; }
 @utility chip-on { @apply bg-indigo-600 text-white ring-indigo-600; }
+
+@keyframes shake { 0%,100% { transform: translateX(0) } 20%,60% { transform: translateX(-8px) } 40%,80% { transform: translateX(8px) } }
+@keyframes pop { 0% { transform: scale(.6); opacity: 0 } 60% { transform: scale(1.15); opacity: 1 } 100% { transform: scale(1) } }
+@keyframes floatup { 0% { transform: translateY(0); opacity: 1 } 100% { transform: translateY(-40px); opacity: 0 } }
+@keyframes hit { 0%,100% { transform: scale(1) rotate(0) } 30% { transform: scale(.85) rotate(-8deg); filter: brightness(2) } 60% { transform: scale(1.05) rotate(6deg) } }
+@utility anim-shake { animation: shake .4s ease; }
+@utility anim-pop { animation: pop .35s ease-out; }
+@utility anim-float { animation: floatup .9s ease-out forwards; }
+@utility anim-hit { animation: hit .5s ease; }

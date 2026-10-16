@@ -11,7 +11,9 @@ const MODES = [
   { id: 'topic', label: 'Topic of the day' },
   { id: 'debate', label: 'Debate' },
   { id: 'job', label: 'My job' },
+  { id: 'mission', label: '🦸 Hero mission' },
 ]
+type Mission = { games: Record<number, { emoji: string; name: string }>; days: { day: number; title: string }[] }
 
 export function Talk({ goalBanner }: { goalBanner?: string | null }) {
   const { settings, update } = useSettings()
@@ -21,11 +23,14 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
   const [scenarioId, setScenarioId] = useState('job-interview')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [opened, setOpened] = useState<number | null>(null)
+  const [mission, setMission] = useState<Mission | null>(null)
+  const [missionId, setMissionId] = useState('w1d1')
 
   const openFromHistory = (r: SessionRow) => {
     setHistoryOpen(false)
     if (r.mode === 'roleplay' && r.scenario) setScenarioId(r.scenario)
-    setMode(MODES.some((m) => m.id === r.mode) ? r.mode : 'free')
+    if (r.mode === 'course' && r.scenario) setMissionId(r.scenario)
+    setMode(r.mode === 'course' ? 'mission' : MODES.some((m) => m.id === r.mode) ? r.mode : 'free')
     setOpened(r.id)
   }
 
@@ -34,7 +39,13 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
       setScenarios(c.scenarios)
       setTopic(c.topic)
     })
+    api<Mission & { current: string | null }>('/api/course').then((c) => {
+      setMission(c)
+      const m = /^w(\d+)d([1-5])$/.exec(c.current || '')
+      if (m) setMissionId(c.current!)
+    })
   }, [])
+  const [mw, md] = missionId.slice(1).split('d').map(Number)
 
   const header = (
     <div className="space-y-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
@@ -49,6 +60,19 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
         <select className="input" value={scenarioId} onChange={(e) => setScenarioId(e.target.value)}>
           {scenarios.map((s) => <option key={s.id} value={s.id}>{s.title} (you are {s.you})</option>)}
         </select>
+      )}
+      {mode === 'mission' && mission && (
+        <div className="space-y-1">
+          <p className="text-xs text-slate-500">A voice adventure: the AI is the game master and you are the hero.</p>
+          <div className="flex gap-2">
+            <select className="input" value={mw} onChange={(e) => setMissionId(`w${e.target.value}d${md}`)}>
+              {Object.entries(mission.games).map(([w, g]) => <option key={w} value={w}>{g.emoji} Week {w}: {g.name}</option>)}
+            </select>
+            <select className="input !w-auto" value={md} onChange={(e) => setMissionId(`w${mw}d${e.target.value}`)}>
+              {mission.days.map((d) => <option key={d.day} value={d.day}>{d.day}. {d.title}</option>)}
+            </select>
+          </div>
+        </div>
       )}
       {mode === 'topic' && topic && (
         <div className="text-sm">
@@ -77,13 +101,15 @@ export function Talk({ goalBanner }: { goalBanner?: string | null }) {
   )
 
   const auto = mode !== 'free'
-  const sKey = `talk:${mode}${mode === 'roleplay' ? ':' + scenarioId : ''}`
+  const isMission = mode === 'mission'
+  const sKey = `talk:${mode}${mode === 'roleplay' ? ':' + scenarioId : isMission ? ':' + missionId : ''}`
   return (
     <>
       <Conversation
         key={`${sKey}-${opened ?? ''}`}
-        mode={mode}
-        scenarioId={mode === 'roleplay' ? scenarioId : undefined}
+        mode={isMission ? 'course' : mode}
+        scenarioId={mode === 'roleplay' ? scenarioId : isMission ? missionId : undefined}
+        game={isMission}
         autoStart={auto}
         header={header}
         storageKey={sKey}

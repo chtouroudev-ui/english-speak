@@ -86,6 +86,7 @@ _conn.executescript(SCHEMA)
 for _sql in (
     "ALTER TABLE messages ADD COLUMN hidden INTEGER DEFAULT 0",
     "ALTER TABLE course_progress ADD COLUMN xp INTEGER DEFAULT 0",
+    "ALTER TABLE course_progress ADD COLUMN stars INTEGER DEFAULT 0",
 ):
     try:
         _conn.execute(_sql)

@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import content, course, db, llm, prompts, pronounce, stt, tts
+from . import content, course, db, lessons, llm, prompts, pronounce, quest, stt, tts
 from .config import STATIC_DIR
 
 app = FastAPI(title="Speak English")
@@ -326,12 +326,13 @@ async def end_session(sid: int):
         summary["xp"] = xp
         summary["stars"] = min(3, xp // 20)
         if len(user_msgs) >= 4:
-            # Keep the best score of all tries.
+            # Hero missions live in the Call tab. Their XP counts for the hero rank ("c" + lesson id),
+            # but the course map only follows the offline games.
             db.execute(
                 "INSERT INTO course_progress(lesson, session_id, xp) VALUES(?, ?, ?) "
                 "ON CONFLICT(lesson) DO UPDATE SET done_at = datetime('now'), session_id = excluded.session_id, "
                 "xp = MAX(course_progress.xp, excluded.xp)",
-                (sess["scenario"], sid, xp),
+                ("c" + sess["scenario"], sid, xp),
             )
             summary["lesson_done"] = sess["scenario"]
     db.execute(
@@ -546,8 +547,9 @@ async def read_text(body: ImageIn):
 @app.get("/api/course")
 def get_course():
     done = {r["lesson"]: r for r in db.query("SELECT * FROM course_progress")}
+    # Level 0 is the lesson to read; levels 1-5 are the offline games.
     current = next(
-        (f"w{w['week']}d{d['day']}" for w in course.WEEKS for d in course.DAYS if f"w{w['week']}d{d['day']}" not in done),
+        (f"w{w['week']}d{d}" for w in course.WEEKS for d in range(6) if f"w{w['week']}d{d}" not in done),
         None,
     )
     hero = db.get_settings().get("hero_name") or "Hero"
@@ -555,8 +557,52 @@ def get_course():
     total_xp = sum(r.get("xp") or 0 for r in done.values())
     return {
         "phases": course.PHASES, "weeks": course.WEEKS, "days": course.DAYS, "games": games,
-        "done": done, "current": current, "hero": hero, "total_xp": total_xp,
+        "levels": quest.LEVEL_INFO, "done": done, "current": current, "hero": hero, "total_xp": total_xp,
     }
+
+
+@app.get("/api/course/lesson/{wn}")
+def get_lesson(wn: int):
+    if wn not in lessons.LESSONS:
+        raise HTTPException(404, "No lesson for this week")
+    return {**lessons.LESSONS[wn], "week": course.week(wn)}
+
+
+@app.get("/api/course/level/{lesson}")
+def get_level(lesson: str):
+    wn, dn = course.parse_id(lesson)
+    data = quest.level(wn, dn) if wn else None
+    if not data:
+        raise HTTPException(404, "No such level")
+    return data
+
+
+class ScoreIn(BaseModel):
+    xp: int = 0
+    stars: int = 0
+
+
+@app.post("/api/course/{lesson}/score")
+def score_lesson(lesson: str, body: ScoreIn):
+    wn, dn = course.parse_id(lesson)
+    if not wn or dn is None or not 0 <= dn <= 5:
+        raise HTTPException(404, "No such level")
+    xp, stars = max(0, min(body.xp, 1000)), max(0, min(body.stars, 3))
+    # Keep the best score of all tries.
+    db.execute(
+        "INSERT INTO course_progress(lesson, xp, stars) VALUES(?, ?, ?) "
+        "ON CONFLICT(lesson) DO UPDATE SET done_at = datetime('now'), "
+        "xp = MAX(course_progress.xp, excluded.xp), stars = MAX(course_progress.stars, excluded.stars)",
+        (lesson, xp, stars),
+    )
+    if dn == 0 and wn in lessons.LESSONS:
+        # Reading the lesson puts its phrasal verbs in the flashcards.
+        for p in lessons.LESSONS[wn]["phrasal"]:
+            db.execute(
+                "INSERT OR IGNORE INTO cards(kind, front, back, example) VALUES('word', ?, ?, ?)",
+                (quest.base(p["verb"]), p["meaning"], p["example"]),
+            )
+    return db.query_one("SELECT * FROM course_progress WHERE lesson = ?", (lesson,))
 
 
 @app.post("/api/course/{lesson}/done")
